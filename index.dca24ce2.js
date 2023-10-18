@@ -580,8 +580,9 @@ var _three = require("three");
 // Crea la scena
 const scene = new _three.Scene();
 // Crea una telecamera prospettica
-const camera = new _three.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.z = 5;
+const camera = new _three.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.5, 100);
+camera.position.z = 10;
+camera.position.y = 2;
 // Crea un renderer
 const renderer = new _three.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -589,21 +590,16 @@ document.body.appendChild(renderer.domElement);
 // Abilita il mapping delle ombre
 renderer.shadowMap.enabled = true;
 // Lights
-scene.add(new _three.AmbientLight(0x404040, 3));
-dirLight = new _three.DirectionalLight(0xffffff, 3);
-dirLight.name = "Dir. Light";
-dirLight.position.set(0, 10, 0);
-dirLight.castShadow = true;
-dirLight.shadow.camera.near = 1;
-dirLight.shadow.camera.far = 10;
-dirLight.shadow.camera.right = 15;
-dirLight.shadow.camera.left = -15;
-dirLight.shadow.camera.top = 15;
-dirLight.shadow.camera.bottom = -15;
-dirLight.shadow.mapSize.width = 1024;
-dirLight.shadow.mapSize.height = 1024;
-scene.add(dirLight);
-scene.add(new _three.CameraHelper(dirLight.shadow.camera));
+const al = new _three.AmbientLight(0xffffff, 5);
+scene.add(al);
+const dl = new _three.DirectionalLight(0xffffff, 2);
+dl.position.set(-0.5, 10, -20);
+const dlhelper = new _three.DirectionalLightHelper(dl, 5);
+scene.add(dl, dlhelper);
+//scene.add(new THREE.CameraHelper(dirLight.shadow.camera));
+// Aggiungi un CameraHelper per visualizzare la telecamera della mappa delle ombre
+const dirLightHelper = new _three.CameraHelper(dl.shadow.camera);
+scene.add(dirLightHelper);
 // Crea un materiale rosso
 const redMaterial = new _three.MeshBasicMaterial({
     color: 0xff0000
@@ -649,6 +645,58 @@ function animateCubes() {
 }
 // Chiama la funzione per iniziare l'animazione
 animateCubes();
+const raycaster = new _three.Raycaster();
+const mouse = new _three.Vector2(1, 1);
+function onMouseMove(event) {
+    event.preventDefault();
+    mouse.x = event.clientX / window.innerWidth * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+}
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    raycaster.setFromCamera(mouse, camera);
+    const intersection = raycaster.intersectObject(mesh);
+    if (intersection.length > 0) {
+        const instanceId = intersection[0].instanceId;
+        mesh.getColorAt(instanceId, color);
+        if (color.equals(white)) {
+            mesh.setColorAt(instanceId, color.setHex(Math.random() * 0xffffff));
+            mesh.instanceColor.needsUpdate = true;
+        }
+    }
+} /* Variabili per la rotazione della scena
+let isDragging = false;
+let previousMouseX = 0;
+
+// Funzione per iniziare la rotazione quando il mouse è premuto
+function onMouseDown(event) {
+  isDragging = true;
+  previousMouseX = event.clientX;
+}
+
+ Funzione per terminare la rotazione quando il mouse viene rilasciato
+function onMouseUp() {
+  isDragging = false;
+}
+
+// Funzione per ruotare la scena
+function onMouseMove(event) {
+  if (!isDragging) return;
+
+  const currentMouseX = event.clientX;
+  const deltaX = currentMouseX - previousMouseX;
+
+  // Modifica la rotazione della telecamera in base al movimento del mouse
+  camera.rotation.y += (deltaX * Math.PI) / 10;
+
+  previousMouseX = currentMouseX;
+}
+
+// Aggiungi event listener per il trascinamento del mouse
+window.addEventListener('mousedown', onMouseDown, false);
+window.addEventListener('mouseup', onMouseUp, false);
+window.addEventListener('mousemove', onMouseMove, false);*/ 
 
 },{"three":"ktPTu"}],"ktPTu":[function(require,module,exports) {
 /**
