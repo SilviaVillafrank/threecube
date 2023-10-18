@@ -586,10 +586,30 @@ camera.position.z = 5;
 const renderer = new _three.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+// Abilita il mapping delle ombre
+renderer.shadowMap.enabled = true;
+// Lights
+scene.add(new _three.AmbientLight(0x404040, 3));
+dirLight = new _three.DirectionalLight(0xffffff, 3);
+dirLight.name = "Dir. Light";
+dirLight.position.set(0, 10, 0);
+dirLight.castShadow = true;
+dirLight.shadow.camera.near = 1;
+dirLight.shadow.camera.far = 10;
+dirLight.shadow.camera.right = 15;
+dirLight.shadow.camera.left = -15;
+dirLight.shadow.camera.top = 15;
+dirLight.shadow.camera.bottom = -15;
+dirLight.shadow.mapSize.width = 1024;
+dirLight.shadow.mapSize.height = 1024;
+scene.add(dirLight);
+scene.add(new _three.CameraHelper(dirLight.shadow.camera));
 // Crea un materiale rosso
 const redMaterial = new _three.MeshBasicMaterial({
     color: 0xff0000
 });
+redMaterial.castShadow = true; // Abilita il lancio di ombre dal materiale
+redMaterial.receiveShadow = true; // Abilita la ricezione di ombre dal materiale
 // Crea un cubo rosso
 const redCube = new _three.Mesh(new _three.BoxGeometry(), redMaterial);
 scene.add(redCube);
@@ -597,12 +617,25 @@ scene.add(redCube);
 const greenMaterial = new _three.MeshBasicMaterial({
     color: 0x00ff00
 });
+greenMaterial.castShadow = true; // Abilita il lancio di ombre dal materiale
+greenMaterial.receiveShadow = true; // Abilita la ricezione di ombre dal materiale
 // Crea un cubo verde
 const greenCube = new _three.Mesh(new _three.BoxGeometry(), greenMaterial);
 scene.add(greenCube);
 // Imposta la posizione dei cubi
 redCube.position.x = -1.5;
 greenCube.position.x = 1.5;
+// Crea un pavimento
+const floorGeometry = new _three.PlaneGeometry(10, 10, 22, 22);
+const floorMaterial = new _three.MeshBasicMaterial({
+    color: 0x808080,
+    side: _three.DoubleSide
+}); // Materiale grigio
+const floor = new _three.Mesh(floorGeometry, floorMaterial);
+floor.rotation.x = -Math.PI / 2; // Ruota il pavimento in modo che sia orizzontale
+floor.position.y = -1; // Posiziona il pavimento al di sotto dei cubi
+floor.receiveShadow = true; // Il pavimento riceve ombre
+scene.add(floor);
 // Funzione per animare i cubi
 function animateCubes() {
     requestAnimationFrame(animateCubes);
