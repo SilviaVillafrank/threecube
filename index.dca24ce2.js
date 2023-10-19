@@ -593,34 +593,27 @@ document.body.appendChild(renderer.domElement);
 renderer.shadowMap.enabled = true;
 const controls = new (0, _orbitControls.OrbitControls)(camera, renderer.domElement);
 const loader = new (0, _gltfloaderJs.GLTFLoader)();
-// LIGHTS
-const hemiLight = new _three.HemisphereLight(0xffffff, 0xffffff, 2);
-hemiLight.color.setHSL(0.6, 1, 0.6);
-hemiLight.groundColor.setHSL(0.095, 1, 0.75);
-hemiLight.position.set(0, 4, 0);
-scene.add(hemiLight);
-const hemiLightHelper = new _three.HemisphereLightHelper(hemiLight, 0.5);
-scene.add(hemiLightHelper);
-//
-const dirLight = new _three.DirectionalLight(0xffffff, 0.5);
-dirLight.color.setHSL(0.1, 1, 0.95);
-dirLight.position.set(-1, 1.75, 1);
-dirLight.position.multiplyScalar(10);
-scene.add(dirLight);
+// Lights
+scene.add(new _three.AmbientLight(0x404040, 3));
+dirLight = new _three.DirectionalLight(0xffffff, 3);
+dirLight.name = "Dir. Light";
+dirLight.position.set(0, 10, 0);
 dirLight.castShadow = true;
-dirLight.shadow.mapSize.width = 2048;
-dirLight.shadow.mapSize.height = 2048;
-const d = 50;
-dirLight.shadow.camera.left = -d;
-dirLight.shadow.camera.right = d;
-dirLight.shadow.camera.top = d;
-dirLight.shadow.camera.bottom = -d;
-dirLight.shadow.camera.far = 3500;
-dirLight.shadow.bias = -0.0001;
-const dirLightHelper = new _three.DirectionalLightHelper(dirLight, 10);
+dirLight.shadow.camera.near = 1;
+dirLight.shadow.camera.far = 10;
+dirLight.shadow.camera.right = 15;
+dirLight.shadow.camera.left = -15;
+dirLight.shadow.camera.top = 15;
+dirLight.shadow.camera.bottom = -15;
+dirLight.shadow.mapSize.width = 1024;
+dirLight.shadow.mapSize.height = 1024;
+scene.add(dirLight);
+//scene.add(new THREE.CameraHelper(dirLight.shadow.camera));
+// Aggiungi un CameraHelper per visualizzare la telecamera della mappa delle ombre
+const dirLightHelper = new _three.CameraHelper(dirLight.shadow.camera);
 scene.add(dirLightHelper);
 // Crea un materiale rosso
-const redMaterial = new _three.MeshBasicMaterial({
+const redMaterial = new _three.MeshPhongMaterial({
     color: 0xff0000
 });
 redMaterial.castShadow = true; // Abilita il lancio di ombre dal materiale
@@ -629,7 +622,7 @@ redMaterial.receiveShadow = true; // Abilita la ricezione di ombre dal materiale
 const redCube = new _three.Mesh(new _three.BoxGeometry(), redMaterial);
 scene.add(redCube);
 // Crea un materiale verde
-const greenMaterial = new _three.MeshBasicMaterial({
+const greenMaterial = new _three.MeshPhongMaterial({
     color: 0x00ff00
 });
 greenMaterial.castShadow = true; // Abilita il lancio di ombre dal materiale
@@ -642,10 +635,9 @@ redCube.position.x = -1.5;
 greenCube.position.x = 1.5;
 // Crea un pavimento
 const floorGeometry = new _three.PlaneGeometry(20, 20, 32, 32);
-const floorMaterial = new _three.MeshBasicMaterial({
-    color: 0x808080,
-    side: _three.DoubleSide
-}); // Materiale grigio
+const floorMaterial = new _three.MeshPhongMaterial({
+    color: 0x808080
+});
 const floor = new _three.Mesh(floorGeometry, floorMaterial);
 floor.rotation.x = -Math.PI / 2; // Ruota il pavimento in modo che sia orizzontale
 floor.position.y = -1; // Posiziona il pavimento al di sotto dei cubi
