@@ -849,12 +849,12 @@ line.scale.z = 0;
 window.addEventListener("resize", onWindowResize);
 //texture
 const textureLoader = new _three.TextureLoader();
-const redBaseColor = textureLoader.load("../furbasecolor.jpg");
-const redNormalmap = textureLoader.load("../furnormal.jpg");
-const redHeightmap = textureLoader.load("../furheight.png");
-const redRoughnessmap = textureLoader.load("../furroughness.jpg");
-const redAmbientOcclusionsmap = textureLoader.load("../furambientOcclusion.jpg");
-const redMetallic = textureLoader.load("../furmetallic.jpg");
+const redBaseColor = textureLoader.load("https://silviavillafrank.github.io/furbasecolor.jpg");
+const redNormalmap = textureLoader.load("https://silviavillafrank.github.io/furnormal.jpg");
+const redHeightmap = textureLoader.load("https://silviavillafrank.github.io/furheight.png");
+const redRoughnessmap = textureLoader.load("https://silviavillafrank.github.io/furroughness.jpg");
+const redAmbientOcclusionsmap = textureLoader.load("https://silviavillafrank.github.io/furambientOcclusion.jpg");
+const redMetallic = textureLoader.load("https://silviavillafrank.github.io/furmetallic.jpg");
 // Crea un cubo rosso //color: 0xff00
 const redMaterial = new _three.MeshStandardMaterial({
     map: redBaseColor,
@@ -891,12 +891,10 @@ floor.rotation.x = -Math.PI / 2; // Ruota il pavimento in modo che sia orizzonta
 floor.position.y = -1; // Posiziona il pavimento al di sotto dei cubi
 floor.receiveShadow = true;
 scene.add(floor);
-//debugger;
-const backGroundTexture = new _three.CubeTextureLoader().load([
-    "space.jpg"
-]);
-scene.background = backGroundTexture;
-// Funzione per animare i cubi
+/*const backGroundTexture = new THREE.CubeTextureLoader().load([
+  'space.jpg',
+])
+scene.background = backGroundTexture*/ // Funzione per animare i cubi
 function animateCubes() {
     requestAnimationFrame(animateCubes);
     // Fai ruotare i cubi
