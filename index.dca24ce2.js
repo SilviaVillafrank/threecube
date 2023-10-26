@@ -142,7 +142,7 @@
       this[globalName] = mainExports;
     }
   }
-})({"12mFW":[function(require,module,exports) {
+})({"3OsqE":[function(require,module,exports) {
 var global = arguments[3];
 var HMR_HOST = null;
 var HMR_PORT = null;
@@ -581,21 +581,212 @@ var _orbitControls = require("three/examples/jsm/controls/OrbitControls");
 var _dragControlsJs = require("three/examples/jsm/controls/DragControls.js");
 var _vrbutton = require("three/examples/jsm/webxr/VRButton");
 var _xrcontrollerModelFactoryJs = require("three/examples/jsm/webxr/XRControllerModelFactory.js");
-var _xrhandModelFactoryJs = require("three/examples/jsm/webxr/XRHandModelFactory.js");
+var _oculusHandModelJs = require("three/examples/jsm/webxr/OculusHandModel.js");
+var _oculusHandPointerModelJs = require("three/examples/jsm/webxr/OculusHandPointerModel.js");
+var _ecsyModuleJs = require("three/examples/jsm/libs/ecsy.module.js");
 let camera, scene, renderer;
-let hand1, hand2;
-let controller1, controller2;
-let controllerGrip1, controllerGrip2;
 const tmpVector1 = new _three.Vector3();
 const tmpVector2 = new _three.Vector3();
 let controls;
-let grabbing = false;
-const scaling = {
-    active: false,
-    initialDistance: 0,
-    object: null,
-    initialScale: 1
+class Object3D extends (0, _ecsyModuleJs.Component) {
+}
+Object3D.schema = {
+    object: {
+        type: (0, _ecsyModuleJs.Types).Ref
+    }
 };
+class Draggable extends (0, _ecsyModuleJs.Component) {
+}
+Draggable.schema = {
+    state: {
+        type: (0, _ecsyModuleJs.Types).String,
+        default: "none"
+    },
+    originalParent: {
+        type: (0, _ecsyModuleJs.Types).Ref,
+        default: null
+    },
+    attachedPointer: {
+        type: (0, _ecsyModuleJs.Types).Ref,
+        default: null
+    }
+};
+class DraggableSystem extends (0, _ecsyModuleJs.System) {
+    execute() {
+        this.queries.draggable.results.forEach((entity)=>{
+            const draggable = entity.getMutableComponent(Draggable);
+            const object = entity.getComponent(Object3D).object;
+            if (draggable.originalParent == null) draggable.originalParent = object.parent;
+            switch(draggable.state){
+                case "to-be-attached":
+                    draggable.attachedPointer.children[0].attach(object);
+                    draggable.state = "attached";
+                    break;
+                case "to-be-detached":
+                    draggable.originalParent.attach(object);
+                    draggable.state = "detached";
+                    break;
+                default:
+                    object.scale.set(1, 1, 1);
+            }
+        });
+    }
+}
+DraggableSystem.queries = {
+    draggable: {
+        components: [
+            Draggable
+        ]
+    }
+};
+class Intersectable extends (0, _ecsyModuleJs.TagComponent) {
+}
+class HandRaySystem extends (0, _ecsyModuleJs.System) {
+    init(attributes) {
+        this.handPointers = attributes.handPointers;
+    }
+    execute() {
+        this.handPointers.forEach((hp)=>{
+            let distance = null;
+            let intersectingEntity = null;
+            this.queries.intersectable.results.forEach((entity)=>{
+                const object = entity.getComponent(Object3D).object;
+                const intersections = hp.intersectObject(object, false);
+                if (intersections && intersections.length > 0) {
+                    if (distance == null || intersections[0].distance < distance) {
+                        distance = intersections[0].distance;
+                        intersectingEntity = entity;
+                    }
+                }
+            });
+            if (intersectingEntity.hasComponent(Draggable)) {
+                const draggable = intersectingEntity.getMutableComponent(Draggable);
+                const object = intersectingEntity.getComponent(Object3D).object;
+                object.scale.set(1.1, 1.1, 1.1);
+                if (hp.isPinched()) {
+                    if (!hp.isAttached() && draggable.state != "attached") {
+                        draggable.state = "to-be-attached";
+                        draggable.attachedPointer = hp;
+                        hp.setAttached(true);
+                    }
+                } else if (hp.isAttached() && draggable.state == "attached") {
+                    console.log("hello");
+                    draggable.state = "to-be-detached";
+                    draggable.attachedPointer = null;
+                    hp.setAttached(false);
+                }
+            }
+        });
+    }
+}
+HandRaySystem.queries = {
+    intersectable: {
+        components: [
+            Intersectable
+        ]
+    }
+};
+class HandsInstructionText extends (0, _ecsyModuleJs.TagComponent) {
+}
+class InstructionSystem extends (0, _ecsyModuleJs.System) {
+    init(attributes) {
+        this.controllers = attributes.controllers;
+    }
+    execute() {
+        let visible = false;
+        this.controllers.forEach((controller)=>{
+            if (controller.visible) visible = true;
+        });
+        this.queries.instructionTexts.results.forEach((entity)=>{
+            const object = entity.getComponent(Object3D).object;
+            object.visible = visible;
+        });
+    }
+}
+InstructionSystem.queries = {
+    instructionTexts: {
+        components: [
+            HandsInstructionText
+        ]
+    }
+};
+class OffsetFromCamera extends (0, _ecsyModuleJs.Component) {
+}
+OffsetFromCamera.schema = {
+    x: {
+        type: (0, _ecsyModuleJs.Types).Number,
+        default: 0
+    },
+    y: {
+        type: (0, _ecsyModuleJs.Types).Number,
+        default: 0
+    },
+    z: {
+        type: (0, _ecsyModuleJs.Types).Number,
+        default: 0
+    }
+};
+class NeedCalibration extends (0, _ecsyModuleJs.TagComponent) {
+}
+class CalibrationSystem extends (0, _ecsyModuleJs.System) {
+    init(attributes) {
+        this.camera = attributes.camera;
+        this.renderer = attributes.renderer;
+    }
+    execute() {
+        this.queries.needCalibration.results.forEach((entity)=>{
+            if (this.renderer.xr.getSession()) {
+                const offset = entity.getComponent(OffsetFromCamera);
+                const object = entity.getComponent(Object3D).object;
+                const xrCamera = this.renderer.xr.getCamera();
+                object.position.x = xrCamera.position.x + offset.x;
+                object.position.y = xrCamera.position.y + offset.y;
+                object.position.z = xrCamera.position.z + offset.z;
+                entity.removeComponent(NeedCalibration);
+            }
+        });
+    }
+}
+CalibrationSystem.queries = {
+    needCalibration: {
+        components: [
+            NeedCalibration
+        ]
+    }
+};
+class Randomizable extends (0, _ecsyModuleJs.TagComponent) {
+}
+class RandomizerSystem extends (0, _ecsyModuleJs.System) {
+    init() {
+        this.needRandomizing = true;
+    }
+    execute() {
+        if (!this.needRandomizing) return;
+        this.queries.randomizable.results.forEach((entity)=>{
+            const object = entity.getComponent(Object3D).object;
+            object.material.color.setHex(Math.random() * 0xffffff);
+            object.position.x = Math.random() * 2 - 1;
+            object.position.y = Math.random() * 2;
+            object.position.z = Math.random() * 2 - 1;
+            object.rotation.x = Math.random() * 2 * Math.PI;
+            object.rotation.y = Math.random() * 2 * Math.PI;
+            object.rotation.z = Math.random() * 2 * Math.PI;
+            object.scale.x = Math.random() + 0.5;
+            object.scale.y = Math.random() + 0.5;
+            object.scale.z = Math.random() + 0.5;
+            this.needRandomizing = false;
+        });
+    }
+}
+RandomizerSystem.queries = {
+    randomizable: {
+        components: [
+            Randomizable
+        ]
+    }
+};
+const world = new (0, _ecsyModuleJs.World)();
+const clock = new _three.Clock();
 // Crea la scena
 scene = new _three.Scene();
 // Crea una telecamera prospettica
@@ -616,6 +807,30 @@ document.body.appendChild((0, _vrbutton.VRButton).createButton(renderer));
 controls = new (0, _orbitControls.OrbitControls)(camera, renderer.domElement);
 controls.target.set(0, -1, 0);
 controls.update();
+// controllers
+const controller1 = renderer.xr.getController(0);
+scene.add(controller1);
+const controller2 = renderer.xr.getController(1);
+scene.add(controller2);
+const controllerModelFactory = new (0, _xrcontrollerModelFactoryJs.XRControllerModelFactory)();
+// Hand 1
+const controllerGrip1 = renderer.xr.getControllerGrip(0);
+controllerGrip1.add(controllerModelFactory.createControllerModel(controllerGrip1));
+scene.add(controllerGrip1);
+const hand1 = renderer.xr.getHand(0);
+hand1.add(new (0, _oculusHandModelJs.OculusHandModel)(hand1));
+const handPointer1 = new (0, _oculusHandPointerModelJs.OculusHandPointerModel)(hand1, controller1);
+hand1.add(handPointer1);
+scene.add(hand1);
+// Hand 2
+const controllerGrip2 = renderer.xr.getControllerGrip(1);
+controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2));
+scene.add(controllerGrip2);
+const hand2 = renderer.xr.getHand(1);
+hand2.add(new (0, _oculusHandModelJs.OculusHandModel)(hand2));
+const handPointer2 = new (0, _oculusHandPointerModelJs.OculusHandPointerModel)(hand2, controller2);
+hand2.add(handPointer2);
+scene.add(hand2);
 // Lights
 scene.add(new _three.AmbientLight(0x404040, 3));
 dirLight = new _three.DirectionalLight(0xffffff, 3);
@@ -623,33 +838,6 @@ dirLight.position.set(0, 5, 0);
 dirLight.castShadow = true;
 scene.add(dirLight);
 dirLight.castShadow = true;
-controller1 = renderer.xr.getController(0);
-scene.add(controller1);
-controller2 = renderer.xr.getController(1);
-scene.add(controller2);
-const controllerModelFactory = new (0, _xrcontrollerModelFactoryJs.XRControllerModelFactory)();
-const handModelFactory = new (0, _xrhandModelFactoryJs.XRHandModelFactory)();
-// Hand 1
-controllerGrip1 = renderer.xr.getControllerGrip(0);
-controllerGrip1.add(controllerModelFactory.createControllerModel(controllerGrip1));
-scene.add(controllerGrip1);
-hand1 = renderer.xr.getHand(0);
-hand1.addEventListener("pinchstart", onPinchStartLeft);
-hand1.addEventListener("pinchend", ()=>{
-    scaling.active = false;
-});
-hand1.add(handModelFactory.createHandModel(hand1));
-scene.add(hand1);
-// Hand 2
-controllerGrip2 = renderer.xr.getControllerGrip(1);
-controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2));
-scene.add(controllerGrip2);
-hand2 = renderer.xr.getHand(1);
-hand2.addEventListener("pinchstart", onPinchStartRight);
-hand2.addEventListener("pinchend", onPinchEndRight);
-hand2.add(handModelFactory.createHandModel(hand2));
-scene.add(hand2);
-//
 const geometry = new _three.BufferGeometry().setFromPoints([
     new _three.Vector3(0, 3, 3),
     new _three.Vector3(0, 3, 3)
@@ -657,8 +845,6 @@ const geometry = new _three.BufferGeometry().setFromPoints([
 const line = new _three.Line(geometry);
 line.name = "line";
 line.scale.z = 0;
-controller1.add(line.clone());
-controller2.add(line.clone());
 //
 window.addEventListener("resize", onWindowResize);
 //texture
@@ -705,8 +891,9 @@ floor.rotation.x = -Math.PI / 2; // Ruota il pavimento in modo che sia orizzonta
 floor.position.y = -1; // Posiziona il pavimento al di sotto dei cubi
 floor.receiveShadow = true;
 scene.add(floor);
+//debugger;
 const backGroundTexture = new _three.CubeTextureLoader().load([
-    "./space.jpg"
+    "space.jpg"
 ]);
 scene.background = backGroundTexture;
 // Funzione per animare i cubi
@@ -732,7 +919,7 @@ controls1.addEventListener("dragend", function(event) {
     controls.enabled = true;
     event.object.material.opacity = 1;
 });
-camera.position.z = 2.5;
+//camera.position.z = 2.5
 // Gestisci il ridimensionamento della finestra
 window.addEventListener("resize", onWindowResize, false);
 function onWindowResize() {
@@ -741,94 +928,22 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.render(scene, camera);
 }
-const SphereRadius = 1;
-// Gestione dell'evento "pinch" sinistro per afferrare un oggetto
-function onPinchStartLeft(event) {
-    const controller = event.target;
-    if (grabbing) {
-        // Se stai già afferrando qualcosa, controlla se ci sono collisioni
-        const indexTip = controller.joints["index-finger-tip"];
-        const sphere = collideObject(indexTip);
-        if (sphere) {
-            const sphere2 = hand2.userData.selected;
-            console.log("sphere1", sphere, "sphere2", sphere2);
-            if (sphere === sphere2) {
-                // Attiva la modalità di ridimensionamento se entrambe le mani toccano lo stesso oggetto
-                scaling.active = true;
-                scaling.object = sphere;
-                scaling.initialScale = sphere.scale.x;
-                scaling.initialDistance = indexTip.position.distanceTo(hand2.joints["index-finger-tip"].position);
-                return;
-            }
-        }
-    }
-    // Se non stai afferrando nulla, crea una nuova sfera alla posizione dell'indice
-    const geometry = new _three.BoxGeometry(SphereRadius, SphereRadius, SphereRadius);
-    const material = new _three.MeshStandardMaterial({
-        color: Math.random() * 0xffffff,
-        roughness: 1.0,
-        metalness: 0.0
-    });
-    const spawn = new _three.Mesh(geometry, material);
-    spawn.geometry.computeBoundingSphere();
-    const indexTip = controller.joints["index-finger-tip"];
-    spawn.position.copy(indexTip.position);
-    spawn.quaternion.copy(indexTip.quaternion);
-    spheres.push(spawn);
-    scene.add(spawn);
-}
-// Funzione per rilevare una collisione tra l'indice e le sfere
-function collideObject(indexTip) {
-    for(let i = 0; i < spheres.length; i++){
-        const sphere = spheres[i];
-        const distance = indexTip.getWorldPosition(tmpVector1).distanceTo(sphere.getWorldPosition(tmpVector2));
-        if (distance < sphere.geometry.boundingSphere.radius * sphere.scale.x) return sphere;
-    }
-    return null;
-}
-// Gestione dell'evento "pinch" destro per afferrare un oggetto
-function onPinchStartRight(event) {
-    const controller = event.target;
-    const indexTip = controller.joints["index-finger-tip"];
-    const object = collideObject(indexTip);
-    if (object) {
-        grabbing = true;
-        indexTip.attach(object);
-        controller.userData.selected = object;
-        console.log("Selected", object);
-    }
-}
-// Gestione dell'evento "pinch" destro per rilasciare l'oggetto
-function onPinchEndRight(event) {
-    const controller = event.target;
-    if (controller.userData.selected !== undefined) {
-        const object = controller.userData.selected;
-        object.material.emissive.b = 0;
-        scene.attach(object);
-        controller.userData.selected = undefined;
-        grabbing = false;
-    }
-    scaling.active = false;
-}
 function animate() {
     renderer.setAnimationLoop(render);
 }
 // Funzione per renderizzare la scena
 function render() {
-    if (scaling.active) {
-        const indexTip1Pos = hand1.joints["index-finger-tip"].position;
-        const indexTip2Pos = hand2.joints["index-finger-tip"].position;
-        const distance = indexTip1Pos.distanceTo(indexTip2Pos);
-        const newScale = scaling.initialScale + distance / scaling.initialDistance - 1;
-        scaling.object.scale.setScalar(newScale);
-    }
+    const delta = clock.getDelta();
+    const elapsedTime = clock.elapsedTime;
+    renderer.xr.updateCamera(camera);
+    world.execute(delta, elapsedTime);
     renderer.render(scene, camera);
 }
 // Chiama la funzione per iniziare l'animazione
 animateCubes();
 animate();
 
-},{"three":"ktPTu","three/examples/jsm/controls/OrbitControls":"7mqRv","three/examples/jsm/webxr/VRButton":"kkyG4","three/examples/jsm/controls/DragControls.js":"4ZWqt","three/examples/jsm/webxr/XRControllerModelFactory.js":"gcFnL","three/examples/jsm/webxr/XRHandModelFactory.js":"hRbBd"}],"ktPTu":[function(require,module,exports) {
+},{"three":"ktPTu","three/examples/jsm/controls/OrbitControls":"7mqRv","three/examples/jsm/webxr/VRButton":"kkyG4","three/examples/jsm/controls/DragControls.js":"4ZWqt","three/examples/jsm/webxr/XRControllerModelFactory.js":"gcFnL","three/examples/jsm/webxr/OculusHandModel.js":"l60Ol","three/examples/jsm/webxr/OculusHandPointerModel.js":"1SZJL","three/examples/jsm/libs/ecsy.module.js":"kiiBC"}],"ktPTu":[function(require,module,exports) {
 /**
  * @license
  * Copyright 2010-2023 Three.js Authors
@@ -30841,7 +30956,7 @@ if (typeof window !== "undefined") {
     else window.__THREE__ = REVISION;
 }
 
-},{"@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"gkKU3":[function(require,module,exports) {
+},{"@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"buhL3":[function(require,module,exports) {
 exports.interopDefault = function(a) {
     return a && a.__esModule ? a : {
         default: a
@@ -31615,7 +31730,7 @@ class OrbitControls extends (0, _three.EventDispatcher) {
     }
 }
 
-},{"three":"ktPTu","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"kkyG4":[function(require,module,exports) {
+},{"three":"ktPTu","@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"kkyG4":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 parcelHelpers.export(exports, "VRButton", ()=>VRButton);
@@ -31738,7 +31853,7 @@ class VRButton {
 VRButton.xrSessionIsGranted = false;
 VRButton.registerSessionGrantedListener();
 
-},{"@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"4ZWqt":[function(require,module,exports) {
+},{"@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"4ZWqt":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 parcelHelpers.export(exports, "DragControls", ()=>DragControls);
@@ -31875,7 +31990,7 @@ class DragControls extends (0, _three.EventDispatcher) {
     }
 }
 
-},{"three":"ktPTu","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"gcFnL":[function(require,module,exports) {
+},{"three":"ktPTu","@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"gcFnL":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 parcelHelpers.export(exports, "XRControllerModelFactory", ()=>XRControllerModelFactory);
@@ -32027,7 +32142,7 @@ class XRControllerModelFactory {
     }
 }
 
-},{"three":"ktPTu","../loaders/GLTFLoader.js":"dVRsF","../libs/motion-controllers.module.js":"hrdBc","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"dVRsF":[function(require,module,exports) {
+},{"three":"ktPTu","../loaders/GLTFLoader.js":"dVRsF","../libs/motion-controllers.module.js":"hrdBc","@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"dVRsF":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 parcelHelpers.export(exports, "GLTFLoader", ()=>GLTFLoader);
@@ -34338,7 +34453,7 @@ const _identityMatrix = new (0, _three.Matrix4)();
     });
 }
 
-},{"three":"ktPTu","../utils/BufferGeometryUtils.js":"5o7x9","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"5o7x9":[function(require,module,exports) {
+},{"three":"ktPTu","../utils/BufferGeometryUtils.js":"5o7x9","@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"5o7x9":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 /**
@@ -35070,7 +35185,7 @@ function mergeBufferAttributes(attributes) {
     return mergeAttributes(attributes);
 }
 
-},{"three":"ktPTu","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"hrdBc":[function(require,module,exports) {
+},{"three":"ktPTu","@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"hrdBc":[function(require,module,exports) {
 /**
  * @webxr-input-profiles/motion-controllers 1.0.0 https://github.com/immersive-web/webxr-input-profiles
  */ var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
@@ -35364,130 +35479,59 @@ class Component {
     }
 }
 
-},{"@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"hRbBd":[function(require,module,exports) {
+},{"@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"l60Ol":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
-parcelHelpers.export(exports, "XRHandModelFactory", ()=>XRHandModelFactory);
+parcelHelpers.export(exports, "OculusHandModel", ()=>OculusHandModel);
 var _three = require("three");
-var _xrhandPrimitiveModelJs = require("./XRHandPrimitiveModel.js");
 var _xrhandMeshModelJs = require("./XRHandMeshModel.js");
-class XRHandModel extends (0, _three.Object3D) {
-    constructor(controller){
+const TOUCH_RADIUS = 0.01;
+const POINTING_JOINT = "index-finger-tip";
+class OculusHandModel extends (0, _three.Object3D) {
+    constructor(controller, loader = null){
         super();
         this.controller = controller;
         this.motionController = null;
         this.envMap = null;
+        this.loader = loader;
         this.mesh = null;
+        controller.addEventListener("connected", (event)=>{
+            const xrInputSource = event.data;
+            if (xrInputSource.hand && !this.motionController) {
+                this.xrInputSource = xrInputSource;
+                this.motionController = new (0, _xrhandMeshModelJs.XRHandMeshModel)(this, controller, this.path, xrInputSource.handedness, this.loader);
+            }
+        });
+        controller.addEventListener("disconnected", ()=>{
+            this.clear();
+            this.motionController = null;
+        });
     }
     updateMatrixWorld(force) {
         super.updateMatrixWorld(force);
         if (this.motionController) this.motionController.updateMesh();
     }
-}
-class XRHandModelFactory {
-    constructor(){
-        this.path = null;
+    getPointerPosition() {
+        const indexFingerTip = this.controller.joints[POINTING_JOINT];
+        if (indexFingerTip) return indexFingerTip.position;
+        else return null;
     }
-    setPath(path) {
-        this.path = path;
-        return this;
+    intersectBoxObject(boxObject) {
+        const pointerPosition = this.getPointerPosition();
+        if (pointerPosition) {
+            const indexSphere = new (0, _three.Sphere)(pointerPosition, TOUCH_RADIUS);
+            const box = new (0, _three.Box3)().setFromObject(boxObject);
+            return indexSphere.intersectsBox(box);
+        } else return false;
     }
-    createHandModel(controller, profile) {
-        const handModel = new XRHandModel(controller);
-        controller.addEventListener("connected", (event)=>{
-            const xrInputSource = event.data;
-            if (xrInputSource.hand && !handModel.motionController) {
-                handModel.xrInputSource = xrInputSource;
-                // @todo Detect profile if not provided
-                if (profile === undefined || profile === "spheres") handModel.motionController = new (0, _xrhandPrimitiveModelJs.XRHandPrimitiveModel)(handModel, controller, this.path, xrInputSource.handedness, {
-                    primitive: "sphere"
-                });
-                else if (profile === "boxes") handModel.motionController = new (0, _xrhandPrimitiveModelJs.XRHandPrimitiveModel)(handModel, controller, this.path, xrInputSource.handedness, {
-                    primitive: "box"
-                });
-                else if (profile === "mesh") handModel.motionController = new (0, _xrhandMeshModelJs.XRHandMeshModel)(handModel, controller, this.path, xrInputSource.handedness);
-            }
-            controller.visible = true;
-        });
-        controller.addEventListener("disconnected", ()=>{
-            controller.visible = false;
-        // handModel.motionController = null;
-        // handModel.remove( scene );
-        // scene = null;
-        });
-        return handModel;
+    checkButton(button) {
+        if (this.intersectBoxObject(button)) button.onPress();
+        else button.onClear();
+        if (button.isPressed()) button.whilePressed();
     }
 }
 
-},{"three":"ktPTu","./XRHandPrimitiveModel.js":"2BjCg","./XRHandMeshModel.js":"cXn5B","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"2BjCg":[function(require,module,exports) {
-var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
-parcelHelpers.defineInteropFlag(exports);
-parcelHelpers.export(exports, "XRHandPrimitiveModel", ()=>XRHandPrimitiveModel);
-var _three = require("three");
-const _matrix = new (0, _three.Matrix4)();
-const _vector = new (0, _three.Vector3)();
-class XRHandPrimitiveModel {
-    constructor(handModel, controller, path, handedness, options){
-        this.controller = controller;
-        this.handModel = handModel;
-        this.envMap = null;
-        let geometry;
-        if (!options || !options.primitive || options.primitive === "sphere") geometry = new (0, _three.SphereGeometry)(1, 10, 10);
-        else if (options.primitive === "box") geometry = new (0, _three.BoxGeometry)(1, 1, 1);
-        const material = new (0, _three.MeshStandardMaterial)();
-        this.handMesh = new (0, _three.InstancedMesh)(geometry, material, 30);
-        this.handMesh.frustumCulled = false;
-        this.handMesh.instanceMatrix.setUsage((0, _three.DynamicDrawUsage)); // will be updated every frame
-        this.handMesh.castShadow = true;
-        this.handMesh.receiveShadow = true;
-        this.handModel.add(this.handMesh);
-        this.joints = [
-            "wrist",
-            "thumb-metacarpal",
-            "thumb-phalanx-proximal",
-            "thumb-phalanx-distal",
-            "thumb-tip",
-            "index-finger-metacarpal",
-            "index-finger-phalanx-proximal",
-            "index-finger-phalanx-intermediate",
-            "index-finger-phalanx-distal",
-            "index-finger-tip",
-            "middle-finger-metacarpal",
-            "middle-finger-phalanx-proximal",
-            "middle-finger-phalanx-intermediate",
-            "middle-finger-phalanx-distal",
-            "middle-finger-tip",
-            "ring-finger-metacarpal",
-            "ring-finger-phalanx-proximal",
-            "ring-finger-phalanx-intermediate",
-            "ring-finger-phalanx-distal",
-            "ring-finger-tip",
-            "pinky-finger-metacarpal",
-            "pinky-finger-phalanx-proximal",
-            "pinky-finger-phalanx-intermediate",
-            "pinky-finger-phalanx-distal",
-            "pinky-finger-tip"
-        ];
-    }
-    updateMesh() {
-        const defaultRadius = 0.008;
-        const joints = this.controller.joints;
-        let count = 0;
-        for(let i = 0; i < this.joints.length; i++){
-            const joint = joints[this.joints[i]];
-            if (joint.visible) {
-                _vector.setScalar(joint.jointRadius || defaultRadius);
-                _matrix.compose(joint.position, joint.quaternion, _vector);
-                this.handMesh.setMatrixAt(i, _matrix);
-                count++;
-            }
-        }
-        this.handMesh.count = count;
-        this.handMesh.instanceMatrix.needsUpdate = true;
-    }
-}
-
-},{"three":"ktPTu","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"cXn5B":[function(require,module,exports) {
+},{"three":"ktPTu","./XRHandMeshModel.js":"cXn5B","@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"cXn5B":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 parcelHelpers.export(exports, "XRHandMeshModel", ()=>XRHandMeshModel);
@@ -35562,6 +35606,1479 @@ class XRHandMeshModel {
     }
 }
 
-},{"../loaders/GLTFLoader.js":"dVRsF","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}]},["12mFW","52tpo"], "52tpo", "parcelRequiref8a7")
+},{"../loaders/GLTFLoader.js":"dVRsF","@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"1SZJL":[function(require,module,exports) {
+var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
+parcelHelpers.defineInteropFlag(exports);
+parcelHelpers.export(exports, "OculusHandPointerModel", ()=>OculusHandPointerModel);
+var _three = require("three");
+const PINCH_MAX = 0.05;
+const PINCH_THRESHOLD = 0.02;
+const PINCH_MIN = 0.01;
+const POINTER_ADVANCE_MAX = 0.02;
+const POINTER_OPACITY_MAX = 1;
+const POINTER_OPACITY_MIN = 0.4;
+const POINTER_FRONT_RADIUS = 0.002;
+const POINTER_REAR_RADIUS = 0.01;
+const POINTER_REAR_RADIUS_MIN = 0.003;
+const POINTER_LENGTH = 0.035;
+const POINTER_SEGMENTS = 16;
+const POINTER_RINGS = 12;
+const POINTER_HEMISPHERE_ANGLE = 110;
+const YAXIS = /* @__PURE__ */ new _three.Vector3(0, 1, 0);
+const ZAXIS = /* @__PURE__ */ new _three.Vector3(0, 0, 1);
+const CURSOR_RADIUS = 0.02;
+const CURSOR_MAX_DISTANCE = 1.5;
+class OculusHandPointerModel extends _three.Object3D {
+    constructor(hand, controller){
+        super();
+        this.hand = hand;
+        this.controller = controller;
+        // Unused
+        this.motionController = null;
+        this.envMap = null;
+        this.mesh = null;
+        this.pointerGeometry = null;
+        this.pointerMesh = null;
+        this.pointerObject = null;
+        this.pinched = false;
+        this.attached = false;
+        this.cursorObject = null;
+        this.raycaster = null;
+        this._onConnected = this._onConnected.bind(this);
+        this._onDisconnected = this._onDisconnected.bind(this);
+        this.hand.addEventListener("connected", this._onConnected);
+        this.hand.addEventListener("disconnected", this._onDisconnected);
+    }
+    _onConnected(event) {
+        const xrInputSource = event.data;
+        if (xrInputSource.hand) {
+            this.visible = true;
+            this.xrInputSource = xrInputSource;
+            this.createPointer();
+        }
+    }
+    _onDisconnected() {
+        this.visible = false;
+        this.xrInputSource = null;
+        if (this.pointerGeometry) this.pointerGeometry.dispose();
+        if (this.pointerMesh && this.pointerMesh.material) this.pointerMesh.material.dispose();
+        this.clear();
+    }
+    _drawVerticesRing(vertices, baseVector, ringIndex) {
+        const segmentVector = baseVector.clone();
+        for(let i = 0; i < POINTER_SEGMENTS; i++){
+            segmentVector.applyAxisAngle(ZAXIS, Math.PI * 2 / POINTER_SEGMENTS);
+            const vid = ringIndex * POINTER_SEGMENTS + i;
+            vertices[3 * vid] = segmentVector.x;
+            vertices[3 * vid + 1] = segmentVector.y;
+            vertices[3 * vid + 2] = segmentVector.z;
+        }
+    }
+    _updatePointerVertices(rearRadius) {
+        const vertices = this.pointerGeometry.attributes.position.array;
+        // first ring for front face
+        const frontFaceBase = new _three.Vector3(POINTER_FRONT_RADIUS, 0, -1 * (POINTER_LENGTH - rearRadius));
+        this._drawVerticesRing(vertices, frontFaceBase, 0);
+        // rings for rear hemisphere
+        const rearBase = new _three.Vector3(Math.sin(Math.PI * POINTER_HEMISPHERE_ANGLE / 180) * rearRadius, Math.cos(Math.PI * POINTER_HEMISPHERE_ANGLE / 180) * rearRadius, 0);
+        for(let i = 0; i < POINTER_RINGS; i++){
+            this._drawVerticesRing(vertices, rearBase, i + 1);
+            rearBase.applyAxisAngle(YAXIS, Math.PI * POINTER_HEMISPHERE_ANGLE / 180 / (POINTER_RINGS * -2));
+        }
+        // front and rear face center vertices
+        const frontCenterIndex = POINTER_SEGMENTS * (1 + POINTER_RINGS);
+        const rearCenterIndex = POINTER_SEGMENTS * (1 + POINTER_RINGS) + 1;
+        const frontCenter = new _three.Vector3(0, 0, -1 * (POINTER_LENGTH - rearRadius));
+        vertices[frontCenterIndex * 3] = frontCenter.x;
+        vertices[frontCenterIndex * 3 + 1] = frontCenter.y;
+        vertices[frontCenterIndex * 3 + 2] = frontCenter.z;
+        const rearCenter = new _three.Vector3(0, 0, rearRadius);
+        vertices[rearCenterIndex * 3] = rearCenter.x;
+        vertices[rearCenterIndex * 3 + 1] = rearCenter.y;
+        vertices[rearCenterIndex * 3 + 2] = rearCenter.z;
+        this.pointerGeometry.setAttribute("position", new _three.Float32BufferAttribute(vertices, 3));
+    // verticesNeedUpdate = true;
+    }
+    createPointer() {
+        let i, j;
+        const vertices = new Array(((POINTER_RINGS + 1) * POINTER_SEGMENTS + 2) * 3).fill(0);
+        // const vertices = [];
+        const indices = [];
+        this.pointerGeometry = new _three.BufferGeometry();
+        this.pointerGeometry.setAttribute("position", new _three.Float32BufferAttribute(vertices, 3));
+        this._updatePointerVertices(POINTER_REAR_RADIUS);
+        // construct faces to connect rings
+        for(i = 0; i < POINTER_RINGS; i++){
+            for(j = 0; j < POINTER_SEGMENTS - 1; j++){
+                indices.push(i * POINTER_SEGMENTS + j, i * POINTER_SEGMENTS + j + 1, (i + 1) * POINTER_SEGMENTS + j);
+                indices.push(i * POINTER_SEGMENTS + j + 1, (i + 1) * POINTER_SEGMENTS + j + 1, (i + 1) * POINTER_SEGMENTS + j);
+            }
+            indices.push((i + 1) * POINTER_SEGMENTS - 1, i * POINTER_SEGMENTS, (i + 2) * POINTER_SEGMENTS - 1);
+            indices.push(i * POINTER_SEGMENTS, (i + 1) * POINTER_SEGMENTS, (i + 2) * POINTER_SEGMENTS - 1);
+        }
+        // construct front and rear face
+        const frontCenterIndex = POINTER_SEGMENTS * (1 + POINTER_RINGS);
+        const rearCenterIndex = POINTER_SEGMENTS * (1 + POINTER_RINGS) + 1;
+        for(i = 0; i < POINTER_SEGMENTS - 1; i++){
+            indices.push(frontCenterIndex, i + 1, i);
+            indices.push(rearCenterIndex, i + POINTER_SEGMENTS * POINTER_RINGS, i + POINTER_SEGMENTS * POINTER_RINGS + 1);
+        }
+        indices.push(frontCenterIndex, 0, POINTER_SEGMENTS - 1);
+        indices.push(rearCenterIndex, POINTER_SEGMENTS * (POINTER_RINGS + 1) - 1, POINTER_SEGMENTS * POINTER_RINGS);
+        const material = new _three.MeshBasicMaterial();
+        material.transparent = true;
+        material.opacity = POINTER_OPACITY_MIN;
+        this.pointerGeometry.setIndex(indices);
+        this.pointerMesh = new _three.Mesh(this.pointerGeometry, material);
+        this.pointerMesh.position.set(0, 0, -1 * POINTER_REAR_RADIUS);
+        this.pointerObject = new _three.Object3D();
+        this.pointerObject.add(this.pointerMesh);
+        this.raycaster = new _three.Raycaster();
+        // create cursor
+        const cursorGeometry = new _three.SphereGeometry(CURSOR_RADIUS, 10, 10);
+        const cursorMaterial = new _three.MeshBasicMaterial();
+        cursorMaterial.transparent = true;
+        cursorMaterial.opacity = POINTER_OPACITY_MIN;
+        this.cursorObject = new _three.Mesh(cursorGeometry, cursorMaterial);
+        this.pointerObject.add(this.cursorObject);
+        this.add(this.pointerObject);
+    }
+    _updateRaycaster() {
+        if (this.raycaster) {
+            const pointerMatrix = this.pointerObject.matrixWorld;
+            const tempMatrix = new _three.Matrix4();
+            tempMatrix.identity().extractRotation(pointerMatrix);
+            this.raycaster.ray.origin.setFromMatrixPosition(pointerMatrix);
+            this.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+        }
+    }
+    _updatePointer() {
+        this.pointerObject.visible = this.controller.visible;
+        const indexTip = this.hand.joints["index-finger-tip"];
+        const thumbTip = this.hand.joints["thumb-tip"];
+        const distance = indexTip.position.distanceTo(thumbTip.position);
+        const position = indexTip.position.clone().add(thumbTip.position).multiplyScalar(0.5);
+        this.pointerObject.position.copy(position);
+        this.pointerObject.quaternion.copy(this.controller.quaternion);
+        this.pinched = distance <= PINCH_THRESHOLD;
+        const pinchScale = (distance - PINCH_MIN) / (PINCH_MAX - PINCH_MIN);
+        const focusScale = (distance - PINCH_MIN) / (PINCH_THRESHOLD - PINCH_MIN);
+        if (pinchScale > 1) {
+            this._updatePointerVertices(POINTER_REAR_RADIUS);
+            this.pointerMesh.position.set(0, 0, -1 * POINTER_REAR_RADIUS);
+            this.pointerMesh.material.opacity = POINTER_OPACITY_MIN;
+        } else if (pinchScale > 0) {
+            const rearRadius = (POINTER_REAR_RADIUS - POINTER_REAR_RADIUS_MIN) * pinchScale + POINTER_REAR_RADIUS_MIN;
+            this._updatePointerVertices(rearRadius);
+            if (focusScale < 1) {
+                this.pointerMesh.position.set(0, 0, -1 * rearRadius - (1 - focusScale) * POINTER_ADVANCE_MAX);
+                this.pointerMesh.material.opacity = POINTER_OPACITY_MIN + (1 - focusScale) * (POINTER_OPACITY_MAX - POINTER_OPACITY_MIN);
+            } else {
+                this.pointerMesh.position.set(0, 0, -1 * rearRadius);
+                this.pointerMesh.material.opacity = POINTER_OPACITY_MIN;
+            }
+        } else {
+            this._updatePointerVertices(POINTER_REAR_RADIUS_MIN);
+            this.pointerMesh.position.set(0, 0, -1 * POINTER_REAR_RADIUS_MIN - POINTER_ADVANCE_MAX);
+            this.pointerMesh.material.opacity = POINTER_OPACITY_MAX;
+        }
+        this.cursorObject.material.opacity = this.pointerMesh.material.opacity;
+    }
+    updateMatrixWorld(force) {
+        super.updateMatrixWorld(force);
+        if (this.pointerGeometry) {
+            this._updatePointer();
+            this._updateRaycaster();
+        }
+    }
+    isPinched() {
+        return this.pinched;
+    }
+    setAttached(attached) {
+        this.attached = attached;
+    }
+    isAttached() {
+        return this.attached;
+    }
+    intersectObject(object, recursive = true) {
+        if (this.raycaster) return this.raycaster.intersectObject(object, recursive);
+    }
+    intersectObjects(objects, recursive = true) {
+        if (this.raycaster) return this.raycaster.intersectObjects(objects, recursive);
+    }
+    checkIntersections(objects, recursive = false) {
+        if (this.raycaster && !this.attached) {
+            const intersections = this.raycaster.intersectObjects(objects, recursive);
+            const direction = new _three.Vector3(0, 0, -1);
+            if (intersections.length > 0) {
+                const intersection = intersections[0];
+                const distance = intersection.distance;
+                this.cursorObject.position.copy(direction.multiplyScalar(distance));
+            } else this.cursorObject.position.copy(direction.multiplyScalar(CURSOR_MAX_DISTANCE));
+        }
+    }
+    setCursor(distance) {
+        const direction = new _three.Vector3(0, 0, -1);
+        if (this.raycaster && !this.attached) this.cursorObject.position.copy(direction.multiplyScalar(distance));
+    }
+    dispose() {
+        this._onDisconnected();
+        this.hand.removeEventListener("connected", this._onConnected);
+        this.hand.removeEventListener("disconnected", this._onDisconnected);
+    }
+}
+
+},{"three":"ktPTu","@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}],"kiiBC":[function(require,module,exports) {
+/**
+ * Return the name of a component
+ * @param {Component} Component
+ * @private
+ */ /**
+ * Get a key from a list of components
+ * @param {Array(Component)} Components Array of components to generate the key
+ * @private
+ */ var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
+parcelHelpers.defineInteropFlag(exports);
+parcelHelpers.export(exports, "Component", ()=>Component);
+parcelHelpers.export(exports, "Not", ()=>Not);
+parcelHelpers.export(exports, "ObjectPool", ()=>ObjectPool);
+parcelHelpers.export(exports, "System", ()=>System);
+parcelHelpers.export(exports, "SystemStateComponent", ()=>SystemStateComponent);
+parcelHelpers.export(exports, "TagComponent", ()=>TagComponent);
+parcelHelpers.export(exports, "Types", ()=>Types);
+parcelHelpers.export(exports, "Version", ()=>Version);
+parcelHelpers.export(exports, "World", ()=>World);
+parcelHelpers.export(exports, "_Entity", ()=>Entity);
+parcelHelpers.export(exports, "cloneArray", ()=>cloneArray);
+parcelHelpers.export(exports, "cloneClonable", ()=>cloneClonable);
+parcelHelpers.export(exports, "cloneJSON", ()=>cloneJSON);
+parcelHelpers.export(exports, "cloneValue", ()=>cloneValue);
+parcelHelpers.export(exports, "copyArray", ()=>copyArray);
+parcelHelpers.export(exports, "copyCopyable", ()=>copyCopyable);
+parcelHelpers.export(exports, "copyJSON", ()=>copyJSON);
+parcelHelpers.export(exports, "copyValue", ()=>copyValue);
+parcelHelpers.export(exports, "createType", ()=>createType);
+parcelHelpers.export(exports, "enableRemoteDevtools", ()=>enableRemoteDevtools);
+function queryKey(Components1) {
+    var ids1 = [];
+    for(var n1 = 0; n1 < Components1.length; n1++){
+        var T1 = Components1[n1];
+        if (!componentRegistered(T1)) throw new Error(`Tried to create a query with an unregistered component`);
+        if (typeof T1 === "object") {
+            var operator1 = T1.operator === "not" ? "!" : T1.operator;
+            ids1.push(operator1 + T1.Component._typeId);
+        } else ids1.push(T1._typeId);
+    }
+    return ids1.sort().join("-");
+}
+// Detector for browser's "window"
+const hasWindow = typeof window !== "undefined";
+// performance.now() "polyfill"
+const now = hasWindow && typeof window.performance !== "undefined" ? performance.now.bind(performance) : Date.now.bind(Date);
+function componentRegistered(T1) {
+    return typeof T1 === "object" && T1.Component._typeId !== undefined || T1.isComponent && T1._typeId !== undefined;
+}
+class SystemManager {
+    constructor(world1){
+        this._systems = [];
+        this._executeSystems = []; // Systems that have `execute` method
+        this.world = world1;
+        this.lastExecutedSystem = null;
+    }
+    registerSystem(SystemClass1, attributes1) {
+        if (!SystemClass1.isSystem) throw new Error(`System '${SystemClass1.name}' does not extend 'System' class`);
+        if (this.getSystem(SystemClass1) !== undefined) {
+            console.warn(`System '${SystemClass1.getName()}' already registered.`);
+            return this;
+        }
+        var system1 = new SystemClass1(this.world, attributes1);
+        if (system1.init) system1.init(attributes1);
+        system1.order = this._systems.length;
+        this._systems.push(system1);
+        if (system1.execute) {
+            this._executeSystems.push(system1);
+            this.sortSystems();
+        }
+        return this;
+    }
+    unregisterSystem(SystemClass1) {
+        let system1 = this.getSystem(SystemClass1);
+        if (system1 === undefined) {
+            console.warn(`Can unregister system '${SystemClass1.getName()}'. It doesn't exist.`);
+            return this;
+        }
+        this._systems.splice(this._systems.indexOf(system1), 1);
+        if (system1.execute) this._executeSystems.splice(this._executeSystems.indexOf(system1), 1);
+        // @todo Add system.unregister() call to free resources
+        return this;
+    }
+    sortSystems() {
+        this._executeSystems.sort((a1, b1)=>{
+            return a1.priority - b1.priority || a1.order - b1.order;
+        });
+    }
+    getSystem(SystemClass1) {
+        return this._systems.find((s1)=>s1 instanceof SystemClass1);
+    }
+    getSystems() {
+        return this._systems;
+    }
+    removeSystem(SystemClass1) {
+        var index1 = this._systems.indexOf(SystemClass1);
+        if (!~index1) return;
+        this._systems.splice(index1, 1);
+    }
+    executeSystem(system1, delta1, time1) {
+        if (system1.initialized) {
+            if (system1.canExecute()) {
+                let startTime1 = now();
+                system1.execute(delta1, time1);
+                system1.executeTime = now() - startTime1;
+                this.lastExecutedSystem = system1;
+                system1.clearEvents();
+            }
+        }
+    }
+    stop() {
+        this._executeSystems.forEach((system1)=>system1.stop());
+    }
+    execute(delta1, time1, forcePlay1) {
+        this._executeSystems.forEach((system1)=>(forcePlay1 || system1.enabled) && this.executeSystem(system1, delta1, time1));
+    }
+    stats() {
+        var stats1 = {
+            numSystems: this._systems.length,
+            systems: {}
+        };
+        for(var i1 = 0; i1 < this._systems.length; i1++){
+            var system1 = this._systems[i1];
+            var systemStats1 = stats1.systems[system1.getName()] = {
+                queries: {},
+                executeTime: system1.executeTime
+            };
+            for(var name1 in system1.ctx)systemStats1.queries[name1] = system1.ctx[name1].stats();
+        }
+        return stats1;
+    }
+}
+class ObjectPool {
+    // @todo Add initial size
+    constructor(T1, initialSize1){
+        this.freeList = [];
+        this.count = 0;
+        this.T = T1;
+        this.isObjectPool = true;
+        if (typeof initialSize1 !== "undefined") this.expand(initialSize1);
+    }
+    acquire() {
+        // Grow the list by 20%ish if we're out
+        if (this.freeList.length <= 0) this.expand(Math.round(this.count * 0.2) + 1);
+        var item1 = this.freeList.pop();
+        return item1;
+    }
+    release(item1) {
+        item1.reset();
+        this.freeList.push(item1);
+    }
+    expand(count1) {
+        for(var n1 = 0; n1 < count1; n1++){
+            var clone1 = new this.T();
+            clone1._pool = this;
+            this.freeList.push(clone1);
+        }
+        this.count += count1;
+    }
+    totalSize() {
+        return this.count;
+    }
+    totalFree() {
+        return this.freeList.length;
+    }
+    totalUsed() {
+        return this.count - this.freeList.length;
+    }
+}
+/**
+ * @private
+ * @class EventDispatcher
+ */ class EventDispatcher {
+    constructor(){
+        this._listeners = {};
+        this.stats = {
+            fired: 0,
+            handled: 0
+        };
+    }
+    /**
+   * Add an event listener
+   * @param {String} eventName Name of the event to listen
+   * @param {Function} listener Callback to trigger when the event is fired
+   */ addEventListener(eventName1, listener1) {
+        let listeners1 = this._listeners;
+        if (listeners1[eventName1] === undefined) listeners1[eventName1] = [];
+        if (listeners1[eventName1].indexOf(listener1) === -1) listeners1[eventName1].push(listener1);
+    }
+    /**
+   * Check if an event listener is already added to the list of listeners
+   * @param {String} eventName Name of the event to check
+   * @param {Function} listener Callback for the specified event
+   */ hasEventListener(eventName1, listener1) {
+        return this._listeners[eventName1] !== undefined && this._listeners[eventName1].indexOf(listener1) !== -1;
+    }
+    /**
+   * Remove an event listener
+   * @param {String} eventName Name of the event to remove
+   * @param {Function} listener Callback for the specified event
+   */ removeEventListener(eventName1, listener1) {
+        var listenerArray1 = this._listeners[eventName1];
+        if (listenerArray1 !== undefined) {
+            var index1 = listenerArray1.indexOf(listener1);
+            if (index1 !== -1) listenerArray1.splice(index1, 1);
+        }
+    }
+    /**
+   * Dispatch an event
+   * @param {String} eventName Name of the event to dispatch
+   * @param {Entity} entity (Optional) Entity to emit
+   * @param {Component} component
+   */ dispatchEvent(eventName1, entity1, component1) {
+        this.stats.fired++;
+        var listenerArray1 = this._listeners[eventName1];
+        if (listenerArray1 !== undefined) {
+            var array1 = listenerArray1.slice(0);
+            for(var i1 = 0; i1 < array1.length; i1++)array1[i1].call(this, entity1, component1);
+        }
+    }
+    /**
+   * Reset stats counters
+   */ resetCounters() {
+        this.stats.fired = this.stats.handled = 0;
+    }
+}
+class Query {
+    /**
+   * @param {Array(Component)} Components List of types of components to query
+   */ constructor(Components1, manager1){
+        this.Components = [];
+        this.NotComponents = [];
+        Components1.forEach((component1)=>{
+            if (typeof component1 === "object") this.NotComponents.push(component1.Component);
+            else this.Components.push(component1);
+        });
+        if (this.Components.length === 0) throw new Error("Can't create a query without components");
+        this.entities = [];
+        this.eventDispatcher = new EventDispatcher();
+        // This query is being used by a reactive system
+        this.reactive = false;
+        this.key = queryKey(Components1);
+        // Fill the query with the existing entities
+        for(var i1 = 0; i1 < manager1._entities.length; i1++){
+            var entity1 = manager1._entities[i1];
+            if (this.match(entity1)) {
+                // @todo ??? this.addEntity(entity); => preventing the event to be generated
+                entity1.queries.push(this);
+                this.entities.push(entity1);
+            }
+        }
+    }
+    /**
+   * Add entity to this query
+   * @param {Entity} entity
+   */ addEntity(entity1) {
+        entity1.queries.push(this);
+        this.entities.push(entity1);
+        this.eventDispatcher.dispatchEvent(Query.prototype.ENTITY_ADDED, entity1);
+    }
+    /**
+   * Remove entity from this query
+   * @param {Entity} entity
+   */ removeEntity(entity1) {
+        let index1 = this.entities.indexOf(entity1);
+        if (~index1) {
+            this.entities.splice(index1, 1);
+            index1 = entity1.queries.indexOf(this);
+            entity1.queries.splice(index1, 1);
+            this.eventDispatcher.dispatchEvent(Query.prototype.ENTITY_REMOVED, entity1);
+        }
+    }
+    match(entity1) {
+        return entity1.hasAllComponents(this.Components) && !entity1.hasAnyComponents(this.NotComponents);
+    }
+    toJSON() {
+        return {
+            key: this.key,
+            reactive: this.reactive,
+            components: {
+                included: this.Components.map((C1)=>C1.name),
+                not: this.NotComponents.map((C1)=>C1.name)
+            },
+            numEntities: this.entities.length
+        };
+    }
+    /**
+   * Return stats for this query
+   */ stats() {
+        return {
+            numComponents: this.Components.length,
+            numEntities: this.entities.length
+        };
+    }
+}
+Query.prototype.ENTITY_ADDED = "Query#ENTITY_ADDED";
+Query.prototype.ENTITY_REMOVED = "Query#ENTITY_REMOVED";
+Query.prototype.COMPONENT_CHANGED = "Query#COMPONENT_CHANGED";
+/**
+ * @private
+ * @class QueryManager
+ */ class QueryManager {
+    constructor(world1){
+        this._world = world1;
+        // Queries indexed by a unique identifier for the components it has
+        this._queries = {};
+    }
+    onEntityRemoved(entity1) {
+        for(var queryName1 in this._queries){
+            var query1 = this._queries[queryName1];
+            if (entity1.queries.indexOf(query1) !== -1) query1.removeEntity(entity1);
+        }
+    }
+    /**
+   * Callback when a component is added to an entity
+   * @param {Entity} entity Entity that just got the new component
+   * @param {Component} Component Component added to the entity
+   */ onEntityComponentAdded(entity1, Component1) {
+        // @todo Use bitmask for checking components?
+        // Check each indexed query to see if we need to add this entity to the list
+        for(var queryName1 in this._queries){
+            var query1 = this._queries[queryName1];
+            if (!!~query1.NotComponents.indexOf(Component1) && ~query1.entities.indexOf(entity1)) {
+                query1.removeEntity(entity1);
+                continue;
+            }
+            // Add the entity only if:
+            // Component is in the query
+            // and Entity has ALL the components of the query
+            // and Entity is not already in the query
+            if (!~query1.Components.indexOf(Component1) || !query1.match(entity1) || ~query1.entities.indexOf(entity1)) continue;
+            query1.addEntity(entity1);
+        }
+    }
+    /**
+   * Callback when a component is removed from an entity
+   * @param {Entity} entity Entity to remove the component from
+   * @param {Component} Component Component to remove from the entity
+   */ onEntityComponentRemoved(entity1, Component1) {
+        for(var queryName1 in this._queries){
+            var query1 = this._queries[queryName1];
+            if (!!~query1.NotComponents.indexOf(Component1) && !~query1.entities.indexOf(entity1) && query1.match(entity1)) {
+                query1.addEntity(entity1);
+                continue;
+            }
+            if (!!~query1.Components.indexOf(Component1) && !!~query1.entities.indexOf(entity1) && !query1.match(entity1)) {
+                query1.removeEntity(entity1);
+                continue;
+            }
+        }
+    }
+    /**
+   * Get a query for the specified components
+   * @param {Component} Components Components that the query should have
+   */ getQuery(Components1) {
+        var key1 = queryKey(Components1);
+        var query1 = this._queries[key1];
+        if (!query1) this._queries[key1] = query1 = new Query(Components1, this._world);
+        return query1;
+    }
+    /**
+   * Return some stats from this class
+   */ stats() {
+        var stats1 = {};
+        for(var queryName1 in this._queries)stats1[queryName1] = this._queries[queryName1].stats();
+        return stats1;
+    }
+}
+class Component {
+    constructor(props1){
+        if (props1 !== false) {
+            const schema1 = this.constructor.schema;
+            for(const key1 in schema1)if (props1 && props1.hasOwnProperty(key1)) this[key1] = props1[key1];
+            else {
+                const schemaProp1 = schema1[key1];
+                if (schemaProp1.hasOwnProperty("default")) this[key1] = schemaProp1.type.clone(schemaProp1.default);
+                else {
+                    const type1 = schemaProp1.type;
+                    this[key1] = type1.clone(type1.default);
+                }
+            }
+            if (props1 !== undefined) this.checkUndefinedAttributes(props1);
+        }
+        this._pool = null;
+    }
+    copy(source1) {
+        const schema1 = this.constructor.schema;
+        for(const key1 in schema1){
+            const prop1 = schema1[key1];
+            if (source1.hasOwnProperty(key1)) this[key1] = prop1.type.copy(source1[key1], this[key1]);
+        }
+        this.checkUndefinedAttributes(source1);
+        return this;
+    }
+    clone() {
+        return new this.constructor().copy(this);
+    }
+    reset() {
+        const schema1 = this.constructor.schema;
+        for(const key1 in schema1){
+            const schemaProp1 = schema1[key1];
+            if (schemaProp1.hasOwnProperty("default")) this[key1] = schemaProp1.type.copy(schemaProp1.default, this[key1]);
+            else {
+                const type1 = schemaProp1.type;
+                this[key1] = type1.copy(type1.default, this[key1]);
+            }
+        }
+    }
+    dispose() {
+        if (this._pool) this._pool.release(this);
+    }
+    getName() {
+        return this.constructor.getName();
+    }
+    checkUndefinedAttributes(src1) {
+        const schema1 = this.constructor.schema;
+        // Check that the attributes defined in source are also defined in the schema
+        Object.keys(src1).forEach((srcKey1)=>{
+            if (!schema1.hasOwnProperty(srcKey1)) console.warn(`Trying to set attribute '${srcKey1}' not defined in the '${this.constructor.name}' schema. Please fix the schema, the attribute value won't be set`);
+        });
+    }
+}
+Component.schema = {};
+Component.isComponent = true;
+Component.getName = function() {
+    return this.displayName || this.name;
+};
+class SystemStateComponent extends Component {
+}
+SystemStateComponent.isSystemStateComponent = true;
+class EntityPool extends ObjectPool {
+    constructor(entityManager1, entityClass1, initialSize1){
+        super(entityClass1, undefined);
+        this.entityManager = entityManager1;
+        if (typeof initialSize1 !== "undefined") this.expand(initialSize1);
+    }
+    expand(count1) {
+        for(var n1 = 0; n1 < count1; n1++){
+            var clone1 = new this.T(this.entityManager);
+            clone1._pool = this;
+            this.freeList.push(clone1);
+        }
+        this.count += count1;
+    }
+}
+/**
+ * @private
+ * @class EntityManager
+ */ class EntityManager {
+    constructor(world1){
+        this.world = world1;
+        this.componentsManager = world1.componentsManager;
+        // All the entities in this instance
+        this._entities = [];
+        this._nextEntityId = 0;
+        this._entitiesByNames = {};
+        this._queryManager = new QueryManager(this);
+        this.eventDispatcher = new EventDispatcher();
+        this._entityPool = new EntityPool(this, this.world.options.entityClass, this.world.options.entityPoolSize);
+        // Deferred deletion
+        this.entitiesWithComponentsToRemove = [];
+        this.entitiesToRemove = [];
+        this.deferredRemovalEnabled = true;
+    }
+    getEntityByName(name1) {
+        return this._entitiesByNames[name1];
+    }
+    /**
+   * Create a new entity
+   */ createEntity(name1) {
+        var entity1 = this._entityPool.acquire();
+        entity1.alive = true;
+        entity1.name = name1 || "";
+        if (name1) {
+            if (this._entitiesByNames[name1]) console.warn(`Entity name '${name1}' already exist`);
+            else this._entitiesByNames[name1] = entity1;
+        }
+        this._entities.push(entity1);
+        this.eventDispatcher.dispatchEvent(ENTITY_CREATED, entity1);
+        return entity1;
+    }
+    // COMPONENTS
+    /**
+   * Add a component to an entity
+   * @param {Entity} entity Entity where the component will be added
+   * @param {Component} Component Component to be added to the entity
+   * @param {Object} values Optional values to replace the default attributes
+   */ entityAddComponent(entity1, Component1, values1) {
+        // @todo Probably define Component._typeId with a default value and avoid using typeof
+        if (typeof Component1._typeId === "undefined" && !this.world.componentsManager._ComponentsMap[Component1._typeId]) throw new Error(`Attempted to add unregistered component "${Component1.getName()}"`);
+        if (~entity1._ComponentTypes.indexOf(Component1)) {
+            console.warn("Component type already exists on entity.", entity1, Component1.getName());
+            return;
+        }
+        entity1._ComponentTypes.push(Component1);
+        if (Component1.__proto__ === SystemStateComponent) entity1.numStateComponents++;
+        var componentPool1 = this.world.componentsManager.getComponentsPool(Component1);
+        var component1 = componentPool1 ? componentPool1.acquire() : new Component1(values1);
+        if (componentPool1 && values1) component1.copy(values1);
+        entity1._components[Component1._typeId] = component1;
+        this._queryManager.onEntityComponentAdded(entity1, Component1);
+        this.world.componentsManager.componentAddedToEntity(Component1);
+        this.eventDispatcher.dispatchEvent(COMPONENT_ADDED, entity1, Component1);
+    }
+    /**
+   * Remove a component from an entity
+   * @param {Entity} entity Entity which will get removed the component
+   * @param {*} Component Component to remove from the entity
+   * @param {Bool} immediately If you want to remove the component immediately instead of deferred (Default is false)
+   */ entityRemoveComponent(entity1, Component1, immediately1) {
+        var index1 = entity1._ComponentTypes.indexOf(Component1);
+        if (!~index1) return;
+        this.eventDispatcher.dispatchEvent(COMPONENT_REMOVE, entity1, Component1);
+        if (immediately1) this._entityRemoveComponentSync(entity1, Component1, index1);
+        else {
+            if (entity1._ComponentTypesToRemove.length === 0) this.entitiesWithComponentsToRemove.push(entity1);
+            entity1._ComponentTypes.splice(index1, 1);
+            entity1._ComponentTypesToRemove.push(Component1);
+            entity1._componentsToRemove[Component1._typeId] = entity1._components[Component1._typeId];
+            delete entity1._components[Component1._typeId];
+        }
+        // Check each indexed query to see if we need to remove it
+        this._queryManager.onEntityComponentRemoved(entity1, Component1);
+        if (Component1.__proto__ === SystemStateComponent) {
+            entity1.numStateComponents--;
+            // Check if the entity was a ghost waiting for the last system state component to be removed
+            if (entity1.numStateComponents === 0 && !entity1.alive) entity1.remove();
+        }
+    }
+    _entityRemoveComponentSync(entity1, Component1, index1) {
+        // Remove T listing on entity and property ref, then free the component.
+        entity1._ComponentTypes.splice(index1, 1);
+        var component1 = entity1._components[Component1._typeId];
+        delete entity1._components[Component1._typeId];
+        component1.dispose();
+        this.world.componentsManager.componentRemovedFromEntity(Component1);
+    }
+    /**
+   * Remove all the components from an entity
+   * @param {Entity} entity Entity from which the components will be removed
+   */ entityRemoveAllComponents(entity1, immediately1) {
+        let Components1 = entity1._ComponentTypes;
+        for(let j1 = Components1.length - 1; j1 >= 0; j1--)if (Components1[j1].__proto__ !== SystemStateComponent) this.entityRemoveComponent(entity1, Components1[j1], immediately1);
+    }
+    /**
+   * Remove the entity from this manager. It will clear also its components
+   * @param {Entity} entity Entity to remove from the manager
+   * @param {Bool} immediately If you want to remove the component immediately instead of deferred (Default is false)
+   */ removeEntity(entity1, immediately1) {
+        var index1 = this._entities.indexOf(entity1);
+        if (!~index1) throw new Error("Tried to remove entity not in list");
+        entity1.alive = false;
+        this.entityRemoveAllComponents(entity1, immediately1);
+        if (entity1.numStateComponents === 0) {
+            // Remove from entity list
+            this.eventDispatcher.dispatchEvent(ENTITY_REMOVED, entity1);
+            this._queryManager.onEntityRemoved(entity1);
+            if (immediately1 === true) this._releaseEntity(entity1, index1);
+            else this.entitiesToRemove.push(entity1);
+        }
+    }
+    _releaseEntity(entity1, index1) {
+        this._entities.splice(index1, 1);
+        if (this._entitiesByNames[entity1.name]) delete this._entitiesByNames[entity1.name];
+        entity1._pool.release(entity1);
+    }
+    /**
+   * Remove all entities from this manager
+   */ removeAllEntities() {
+        for(var i1 = this._entities.length - 1; i1 >= 0; i1--)this.removeEntity(this._entities[i1]);
+    }
+    processDeferredRemoval() {
+        if (!this.deferredRemovalEnabled) return;
+        for(let i1 = 0; i1 < this.entitiesToRemove.length; i1++){
+            let entity1 = this.entitiesToRemove[i1];
+            let index1 = this._entities.indexOf(entity1);
+            this._releaseEntity(entity1, index1);
+        }
+        this.entitiesToRemove.length = 0;
+        for(let i1 = 0; i1 < this.entitiesWithComponentsToRemove.length; i1++){
+            let entity1 = this.entitiesWithComponentsToRemove[i1];
+            while(entity1._ComponentTypesToRemove.length > 0){
+                let Component1 = entity1._ComponentTypesToRemove.pop();
+                var component1 = entity1._componentsToRemove[Component1._typeId];
+                delete entity1._componentsToRemove[Component1._typeId];
+                component1.dispose();
+                this.world.componentsManager.componentRemovedFromEntity(Component1);
+            //this._entityRemoveComponentSync(entity, Component, index);
+            }
+        }
+        this.entitiesWithComponentsToRemove.length = 0;
+    }
+    /**
+   * Get a query based on a list of components
+   * @param {Array(Component)} Components List of components that will form the query
+   */ queryComponents(Components1) {
+        return this._queryManager.getQuery(Components1);
+    }
+    // EXTRAS
+    /**
+   * Return number of entities
+   */ count() {
+        return this._entities.length;
+    }
+    /**
+   * Return some stats
+   */ stats() {
+        var stats1 = {
+            numEntities: this._entities.length,
+            numQueries: Object.keys(this._queryManager._queries).length,
+            queries: this._queryManager.stats(),
+            numComponentPool: Object.keys(this.componentsManager._componentPool).length,
+            componentPool: {},
+            eventDispatcher: this.eventDispatcher.stats
+        };
+        for(var ecsyComponentId1 in this.componentsManager._componentPool){
+            var pool1 = this.componentsManager._componentPool[ecsyComponentId1];
+            stats1.componentPool[pool1.T.getName()] = {
+                used: pool1.totalUsed(),
+                size: pool1.count
+            };
+        }
+        return stats1;
+    }
+}
+const ENTITY_CREATED = "EntityManager#ENTITY_CREATE";
+const ENTITY_REMOVED = "EntityManager#ENTITY_REMOVED";
+const COMPONENT_ADDED = "EntityManager#COMPONENT_ADDED";
+const COMPONENT_REMOVE = "EntityManager#COMPONENT_REMOVE";
+class ComponentManager {
+    constructor(){
+        this.Components = [];
+        this._ComponentsMap = {};
+        this._componentPool = {};
+        this.numComponents = {};
+        this.nextComponentId = 0;
+    }
+    hasComponent(Component1) {
+        return this.Components.indexOf(Component1) !== -1;
+    }
+    registerComponent(Component1, objectPool1) {
+        if (this.Components.indexOf(Component1) !== -1) {
+            console.warn(`Component type: '${Component1.getName()}' already registered.`);
+            return;
+        }
+        const schema1 = Component1.schema;
+        if (!schema1) throw new Error(`Component "${Component1.getName()}" has no schema property.`);
+        for(const propName1 in schema1){
+            const prop1 = schema1[propName1];
+            if (!prop1.type) throw new Error(`Invalid schema for component "${Component1.getName()}". Missing type for "${propName1}" property.`);
+        }
+        Component1._typeId = this.nextComponentId++;
+        this.Components.push(Component1);
+        this._ComponentsMap[Component1._typeId] = Component1;
+        this.numComponents[Component1._typeId] = 0;
+        if (objectPool1 === undefined) objectPool1 = new ObjectPool(Component1);
+        else if (objectPool1 === false) objectPool1 = undefined;
+        this._componentPool[Component1._typeId] = objectPool1;
+    }
+    componentAddedToEntity(Component1) {
+        this.numComponents[Component1._typeId]++;
+    }
+    componentRemovedFromEntity(Component1) {
+        this.numComponents[Component1._typeId]--;
+    }
+    getComponentsPool(Component1) {
+        return this._componentPool[Component1._typeId];
+    }
+}
+const Version = "0.3.1";
+const proxyMap = new WeakMap();
+const proxyHandler = {
+    set (target1, prop1) {
+        throw new Error(`Tried to write to "${target1.constructor.getName()}#${String(prop1)}" on immutable component. Use .getMutableComponent() to modify a component.`);
+    }
+};
+function wrapImmutableComponent(T1, component1) {
+    if (component1 === undefined) return undefined;
+    let wrappedComponent1 = proxyMap.get(component1);
+    if (!wrappedComponent1) {
+        wrappedComponent1 = new Proxy(component1, proxyHandler);
+        proxyMap.set(component1, wrappedComponent1);
+    }
+    return wrappedComponent1;
+}
+class Entity {
+    constructor(entityManager1){
+        this._entityManager = entityManager1 || null;
+        // Unique ID for this entity
+        this.id = entityManager1._nextEntityId++;
+        // List of components types the entity has
+        this._ComponentTypes = [];
+        // Instance of the components
+        this._components = {};
+        this._componentsToRemove = {};
+        // Queries where the entity is added
+        this.queries = [];
+        // Used for deferred removal
+        this._ComponentTypesToRemove = [];
+        this.alive = false;
+        //if there are state components on a entity, it can't be removed completely
+        this.numStateComponents = 0;
+    }
+    // COMPONENTS
+    getComponent(Component1, includeRemoved1) {
+        var component1 = this._components[Component1._typeId];
+        if (!component1 && includeRemoved1 === true) component1 = this._componentsToRemove[Component1._typeId];
+        return wrapImmutableComponent(Component1, component1);
+    }
+    getRemovedComponent(Component1) {
+        const component1 = this._componentsToRemove[Component1._typeId];
+        return wrapImmutableComponent(Component1, component1);
+    }
+    getComponents() {
+        return this._components;
+    }
+    getComponentsToRemove() {
+        return this._componentsToRemove;
+    }
+    getComponentTypes() {
+        return this._ComponentTypes;
+    }
+    getMutableComponent(Component1) {
+        var component1 = this._components[Component1._typeId];
+        if (!component1) return;
+        for(var i1 = 0; i1 < this.queries.length; i1++){
+            var query1 = this.queries[i1];
+            // @todo accelerate this check. Maybe having query._Components as an object
+            // @todo add Not components
+            if (query1.reactive && query1.Components.indexOf(Component1) !== -1) query1.eventDispatcher.dispatchEvent(Query.prototype.COMPONENT_CHANGED, this, component1);
+        }
+        return component1;
+    }
+    addComponent(Component1, values1) {
+        this._entityManager.entityAddComponent(this, Component1, values1);
+        return this;
+    }
+    removeComponent(Component1, forceImmediate1) {
+        this._entityManager.entityRemoveComponent(this, Component1, forceImmediate1);
+        return this;
+    }
+    hasComponent(Component1, includeRemoved1) {
+        return !!~this._ComponentTypes.indexOf(Component1) || includeRemoved1 === true && this.hasRemovedComponent(Component1);
+    }
+    hasRemovedComponent(Component1) {
+        return !!~this._ComponentTypesToRemove.indexOf(Component1);
+    }
+    hasAllComponents(Components1) {
+        for(var i1 = 0; i1 < Components1.length; i1++){
+            if (!this.hasComponent(Components1[i1])) return false;
+        }
+        return true;
+    }
+    hasAnyComponents(Components1) {
+        for(var i1 = 0; i1 < Components1.length; i1++){
+            if (this.hasComponent(Components1[i1])) return true;
+        }
+        return false;
+    }
+    removeAllComponents(forceImmediate1) {
+        return this._entityManager.entityRemoveAllComponents(this, forceImmediate1);
+    }
+    copy(src1) {
+        // TODO: This can definitely be optimized
+        for(var ecsyComponentId1 in src1._components){
+            var srcComponent1 = src1._components[ecsyComponentId1];
+            this.addComponent(srcComponent1.constructor);
+            var component1 = this.getComponent(srcComponent1.constructor);
+            component1.copy(srcComponent1);
+        }
+        return this;
+    }
+    clone() {
+        return new Entity(this._entityManager).copy(this);
+    }
+    reset() {
+        this.id = this._entityManager._nextEntityId++;
+        this._ComponentTypes.length = 0;
+        this.queries.length = 0;
+        for(var ecsyComponentId1 in this._components)delete this._components[ecsyComponentId1];
+    }
+    remove(forceImmediate1) {
+        return this._entityManager.removeEntity(this, forceImmediate1);
+    }
+}
+const DEFAULT_OPTIONS = {
+    entityPoolSize: 0,
+    entityClass: Entity
+};
+class World {
+    constructor(options1 = {}){
+        this.options = Object.assign({}, DEFAULT_OPTIONS, options1);
+        this.componentsManager = new ComponentManager(this);
+        this.entityManager = new EntityManager(this);
+        this.systemManager = new SystemManager(this);
+        this.enabled = true;
+        this.eventQueues = {};
+        if (hasWindow && typeof CustomEvent !== "undefined") {
+            var event1 = new CustomEvent("ecsy-world-created", {
+                detail: {
+                    world: this,
+                    version: Version
+                }
+            });
+            window.dispatchEvent(event1);
+        }
+        this.lastTime = now() / 1000;
+    }
+    registerComponent(Component1, objectPool1) {
+        this.componentsManager.registerComponent(Component1, objectPool1);
+        return this;
+    }
+    registerSystem(System1, attributes1) {
+        this.systemManager.registerSystem(System1, attributes1);
+        return this;
+    }
+    hasRegisteredComponent(Component1) {
+        return this.componentsManager.hasComponent(Component1);
+    }
+    unregisterSystem(System1) {
+        this.systemManager.unregisterSystem(System1);
+        return this;
+    }
+    getSystem(SystemClass1) {
+        return this.systemManager.getSystem(SystemClass1);
+    }
+    getSystems() {
+        return this.systemManager.getSystems();
+    }
+    execute(delta1, time1) {
+        if (!delta1) {
+            time1 = now() / 1000;
+            delta1 = time1 - this.lastTime;
+            this.lastTime = time1;
+        }
+        if (this.enabled) {
+            this.systemManager.execute(delta1, time1);
+            this.entityManager.processDeferredRemoval();
+        }
+    }
+    stop() {
+        this.enabled = false;
+    }
+    play() {
+        this.enabled = true;
+    }
+    createEntity(name1) {
+        return this.entityManager.createEntity(name1);
+    }
+    stats() {
+        var stats1 = {
+            entities: this.entityManager.stats(),
+            system: this.systemManager.stats()
+        };
+        return stats1;
+    }
+}
+class System {
+    canExecute() {
+        if (this._mandatoryQueries.length === 0) return true;
+        for(let i1 = 0; i1 < this._mandatoryQueries.length; i1++){
+            var query1 = this._mandatoryQueries[i1];
+            if (query1.entities.length === 0) return false;
+        }
+        return true;
+    }
+    getName() {
+        return this.constructor.getName();
+    }
+    constructor(world1, attributes1){
+        this.world = world1;
+        this.enabled = true;
+        // @todo Better naming :)
+        this._queries = {};
+        this.queries = {};
+        this.priority = 0;
+        // Used for stats
+        this.executeTime = 0;
+        if (attributes1 && attributes1.priority) this.priority = attributes1.priority;
+        this._mandatoryQueries = [];
+        this.initialized = true;
+        if (this.constructor.queries) for(var queryName1 in this.constructor.queries){
+            var queryConfig1 = this.constructor.queries[queryName1];
+            var Components1 = queryConfig1.components;
+            if (!Components1 || Components1.length === 0) throw new Error("'components' attribute can't be empty in a query");
+            // Detect if the components have already been registered
+            let unregisteredComponents1 = Components1.filter((Component1)=>!componentRegistered(Component1));
+            if (unregisteredComponents1.length > 0) throw new Error(`Tried to create a query '${this.constructor.name}.${queryName1}' with unregistered components: [${unregisteredComponents1.map((c1)=>c1.getName()).join(", ")}]`);
+            var query1 = this.world.entityManager.queryComponents(Components1);
+            this._queries[queryName1] = query1;
+            if (queryConfig1.mandatory === true) this._mandatoryQueries.push(query1);
+            this.queries[queryName1] = {
+                results: query1.entities
+            };
+            // Reactive configuration added/removed/changed
+            var validEvents1 = [
+                "added",
+                "removed",
+                "changed"
+            ];
+            const eventMapping1 = {
+                added: Query.prototype.ENTITY_ADDED,
+                removed: Query.prototype.ENTITY_REMOVED,
+                changed: Query.prototype.COMPONENT_CHANGED
+            };
+            if (queryConfig1.listen) validEvents1.forEach((eventName1)=>{
+                if (!this.execute) console.warn(`System '${this.getName()}' has defined listen events (${validEvents1.join(", ")}) for query '${queryName1}' but it does not implement the 'execute' method.`);
+                // Is the event enabled on this system's query?
+                if (queryConfig1.listen[eventName1]) {
+                    let event1 = queryConfig1.listen[eventName1];
+                    if (eventName1 === "changed") {
+                        query1.reactive = true;
+                        if (event1 === true) {
+                            // Any change on the entity from the components in the query
+                            let eventList1 = this.queries[queryName1][eventName1] = [];
+                            query1.eventDispatcher.addEventListener(Query.prototype.COMPONENT_CHANGED, (entity1)=>{
+                                // Avoid duplicates
+                                if (eventList1.indexOf(entity1) === -1) eventList1.push(entity1);
+                            });
+                        } else if (Array.isArray(event1)) {
+                            let eventList1 = this.queries[queryName1][eventName1] = [];
+                            query1.eventDispatcher.addEventListener(Query.prototype.COMPONENT_CHANGED, (entity1, changedComponent1)=>{
+                                // Avoid duplicates
+                                if (event1.indexOf(changedComponent1.constructor) !== -1 && eventList1.indexOf(entity1) === -1) eventList1.push(entity1);
+                            });
+                        }
+                    } else {
+                        let eventList1 = this.queries[queryName1][eventName1] = [];
+                        query1.eventDispatcher.addEventListener(eventMapping1[eventName1], (entity1)=>{
+                            // @fixme overhead?
+                            if (eventList1.indexOf(entity1) === -1) eventList1.push(entity1);
+                        });
+                    }
+                }
+            });
+        }
+    }
+    stop() {
+        this.executeTime = 0;
+        this.enabled = false;
+    }
+    play() {
+        this.enabled = true;
+    }
+    // @question rename to clear queues?
+    clearEvents() {
+        for(let queryName1 in this.queries){
+            var query1 = this.queries[queryName1];
+            if (query1.added) query1.added.length = 0;
+            if (query1.removed) query1.removed.length = 0;
+            if (query1.changed) {
+                if (Array.isArray(query1.changed)) query1.changed.length = 0;
+                else for(let name1 in query1.changed)query1.changed[name1].length = 0;
+            }
+        }
+    }
+    toJSON() {
+        var json1 = {
+            name: this.getName(),
+            enabled: this.enabled,
+            executeTime: this.executeTime,
+            priority: this.priority,
+            queries: {}
+        };
+        if (this.constructor.queries) {
+            var queries1 = this.constructor.queries;
+            for(let queryName1 in queries1){
+                let query1 = this.queries[queryName1];
+                let queryDefinition1 = queries1[queryName1];
+                let jsonQuery1 = json1.queries[queryName1] = {
+                    key: this._queries[queryName1].key
+                };
+                jsonQuery1.mandatory = queryDefinition1.mandatory === true;
+                jsonQuery1.reactive = queryDefinition1.listen && (queryDefinition1.listen.added === true || queryDefinition1.listen.removed === true || queryDefinition1.listen.changed === true || Array.isArray(queryDefinition1.listen.changed));
+                if (jsonQuery1.reactive) {
+                    jsonQuery1.listen = {};
+                    const methods1 = [
+                        "added",
+                        "removed",
+                        "changed"
+                    ];
+                    methods1.forEach((method1)=>{
+                        if (query1[method1]) jsonQuery1.listen[method1] = {
+                            entities: query1[method1].length
+                        };
+                    });
+                }
+            }
+        }
+        return json1;
+    }
+}
+System.isSystem = true;
+System.getName = function() {
+    return this.displayName || this.name;
+};
+function Not(Component1) {
+    return {
+        operator: "not",
+        Component: Component1
+    };
+}
+class TagComponent extends Component {
+    constructor(){
+        super(false);
+    }
+}
+TagComponent.isTagComponent = true;
+const copyValue = (src1)=>src1;
+const cloneValue = (src1)=>src1;
+const copyArray = (src1, dest1)=>{
+    if (!src1) return src1;
+    if (!dest1) return src1.slice();
+    dest1.length = 0;
+    for(let i1 = 0; i1 < src1.length; i1++)dest1.push(src1[i1]);
+    return dest1;
+};
+const cloneArray = (src1)=>src1 && src1.slice();
+const copyJSON = (src1)=>JSON.parse(JSON.stringify(src1));
+const cloneJSON = (src1)=>JSON.parse(JSON.stringify(src1));
+const copyCopyable = (src1, dest1)=>{
+    if (!src1) return src1;
+    if (!dest1) return src1.clone();
+    return dest1.copy(src1);
+};
+const cloneClonable = (src1)=>src1 && src1.clone();
+function createType(typeDefinition1) {
+    var mandatoryProperties1 = [
+        "name",
+        "default",
+        "copy",
+        "clone"
+    ];
+    var undefinedProperties1 = mandatoryProperties1.filter((p1)=>{
+        return !typeDefinition1.hasOwnProperty(p1);
+    });
+    if (undefinedProperties1.length > 0) throw new Error(`createType expects a type definition with the following properties: ${undefinedProperties1.join(", ")}`);
+    typeDefinition1.isType = true;
+    return typeDefinition1;
+}
+/**
+ * Standard types
+ */ const Types = {
+    Number: createType({
+        name: "Number",
+        default: 0,
+        copy: copyValue,
+        clone: cloneValue
+    }),
+    Boolean: createType({
+        name: "Boolean",
+        default: false,
+        copy: copyValue,
+        clone: cloneValue
+    }),
+    String: createType({
+        name: "String",
+        default: "",
+        copy: copyValue,
+        clone: cloneValue
+    }),
+    Array: createType({
+        name: "Array",
+        default: [],
+        copy: copyArray,
+        clone: cloneArray
+    }),
+    Ref: createType({
+        name: "Ref",
+        default: undefined,
+        copy: copyValue,
+        clone: cloneValue
+    }),
+    JSON: createType({
+        name: "JSON",
+        default: null,
+        copy: copyJSON,
+        clone: cloneJSON
+    })
+};
+function generateId(length1) {
+    var result1 = "";
+    var characters1 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    var charactersLength1 = characters1.length;
+    for(var i1 = 0; i1 < length1; i1++)result1 += characters1.charAt(Math.floor(Math.random() * charactersLength1));
+    return result1;
+}
+function injectScript(src1, onLoad1) {
+    var script1 = document.createElement("script");
+    // @todo Use link to the ecsy-devtools repo?
+    script1.src = src1;
+    script1.onload = onLoad1;
+    (document.head || document.documentElement).appendChild(script1);
+}
+/* global Peer */ function hookConsoleAndErrors(connection1) {
+    var wrapFunctions1 = [
+        "error",
+        "warning",
+        "log"
+    ];
+    wrapFunctions1.forEach((key1)=>{
+        if (typeof console[key1] === "function") {
+            var fn1 = console[key1].bind(console);
+            console[key1] = (...args1)=>{
+                connection1.send({
+                    method: "console",
+                    type: key1,
+                    args: JSON.stringify(args1)
+                });
+                return fn1.apply(null, args1);
+            };
+        }
+    });
+    window.addEventListener("error", (error1)=>{
+        connection1.send({
+            method: "error",
+            error: JSON.stringify({
+                message: error1.error.message,
+                stack: error1.error.stack
+            })
+        });
+    });
+}
+function includeRemoteIdHTML(remoteId1) {
+    let infoDiv1 = document.createElement("div");
+    infoDiv1.style.cssText = `
+    align-items: center;
+    background-color: #333;
+    color: #aaa;
+    display:flex;
+    font-family: Arial;
+    font-size: 1.1em;
+    height: 40px;
+    justify-content: center;
+    left: 0;
+    opacity: 0.9;
+    position: absolute;
+    right: 0;
+    text-align: center;
+    top: 0;
+  `;
+    infoDiv1.innerHTML = `Open ECSY devtools to connect to this page using the code:&nbsp;<b style="color: #fff">${remoteId1}</b>&nbsp;<button onClick="generateNewCode()">Generate new code</button>`;
+    document.body.appendChild(infoDiv1);
+    return infoDiv1;
+}
+function enableRemoteDevtools(remoteId) {
+    if (!hasWindow) {
+        console.warn("Remote devtools not available outside the browser");
+        return;
+    }
+    window.generateNewCode = ()=>{
+        window.localStorage.clear();
+        remoteId = generateId(6);
+        window.localStorage.setItem("ecsyRemoteId", remoteId);
+        window.location.reload(false);
+    };
+    remoteId = remoteId || window.localStorage.getItem("ecsyRemoteId");
+    if (!remoteId) {
+        remoteId = generateId(6);
+        window.localStorage.setItem("ecsyRemoteId", remoteId);
+    }
+    let infoDiv = includeRemoteIdHTML(remoteId);
+    window.__ECSY_REMOTE_DEVTOOLS_INJECTED = true;
+    window.__ECSY_REMOTE_DEVTOOLS = {};
+    let Version = "";
+    // This is used to collect the worlds created before the communication is being established
+    let worldsBeforeLoading = [];
+    let onWorldCreated = (e1)=>{
+        var world1 = e1.detail.world;
+        Version = e1.detail.version;
+        worldsBeforeLoading.push(world1);
+    };
+    window.addEventListener("ecsy-world-created", onWorldCreated);
+    let onLoaded = ()=>{
+        // var peer = new Peer(remoteId);
+        var peer = new Peer(remoteId, {
+            host: "peerjs.ecsy.io",
+            secure: true,
+            port: 443,
+            config: {
+                iceServers: [
+                    {
+                        url: "stun:stun.l.google.com:19302"
+                    },
+                    {
+                        url: "stun:stun1.l.google.com:19302"
+                    },
+                    {
+                        url: "stun:stun2.l.google.com:19302"
+                    },
+                    {
+                        url: "stun:stun3.l.google.com:19302"
+                    },
+                    {
+                        url: "stun:stun4.l.google.com:19302"
+                    }
+                ]
+            },
+            debug: 3
+        });
+        peer.on("open", ()=>{
+            peer.on("connection", (connection)=>{
+                window.__ECSY_REMOTE_DEVTOOLS.connection = connection;
+                connection.on("open", function() {
+                    // infoDiv.style.visibility = "hidden";
+                    infoDiv.innerHTML = "Connected";
+                    // Receive messages
+                    connection.on("data", function(data) {
+                        if (data.type === "init") {
+                            var script = document.createElement("script");
+                            script.setAttribute("type", "text/javascript");
+                            script.onload = ()=>{
+                                script.parentNode.removeChild(script);
+                                // Once the script is injected we don't need to listen
+                                window.removeEventListener("ecsy-world-created", onWorldCreated);
+                                worldsBeforeLoading.forEach((world1)=>{
+                                    var event1 = new CustomEvent("ecsy-world-created", {
+                                        detail: {
+                                            world: world1,
+                                            version: Version
+                                        }
+                                    });
+                                    window.dispatchEvent(event1);
+                                });
+                            };
+                            script.innerHTML = data.script;
+                            (document.head || document.documentElement).appendChild(script);
+                            script.onload();
+                            hookConsoleAndErrors(connection);
+                        } else if (data.type === "executeScript") {
+                            let value = eval(data.script);
+                            if (data.returnEval) connection.send({
+                                method: "evalReturn",
+                                value: value
+                            });
+                        }
+                    });
+                });
+            });
+        });
+    };
+    // Inject PeerJS script
+    injectScript("https://cdn.jsdelivr.net/npm/peerjs@0.3.20/dist/peer.min.js", onLoaded);
+}
+if (hasWindow) {
+    const urlParams = new URLSearchParams(window.location.search);
+    // @todo Provide a way to disable it if needed
+    if (urlParams.has("enable-remote-devtools")) enableRemoteDevtools();
+}
+
+},{"@parcel/transformer-js/src/esmodule-helpers.js":"buhL3"}]},["3OsqE","52tpo"], "52tpo", "parcelRequiref8a7")
 
 //# sourceMappingURL=index.dca24ce2.js.map
